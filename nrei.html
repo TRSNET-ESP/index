@@ -52,7 +52,7 @@
 
     <div class="container">
         <h2>TRSNET REINOSA</h2>
-        <div class="sub">Nodo Auto-Reload & Recovery</div>
+        <div class="sub">Nodo Auto-Reload & Refresh 30m</div>
         
         <div id="status" style="color: #fbbf24;">Iniciando sistema...</div>
         
@@ -69,7 +69,8 @@
         const streamUrl = 'http://100.99.98.47:8090'; 
         let reintentoTimer = null;
         let watchdogTimer = null;
-        let fallosConsecutivos = 0; // Contador para forzar reinicio de web
+        let refreshTimer = null;
+        let fallosConsecutivos = 0; 
 
         function log(msg) {
             const hora = new Date().toLocaleTimeString();
@@ -89,7 +90,7 @@
             audio.play().then(() => {
                 statusText.innerText = "EN DIRECTO (Reproduciendo)";
                 statusText.style.color = "#00ffcc";
-                fallosConsecutivos = 0; // Reseteamos contador si hay éxito
+                fallosConsecutivos = 0; 
                 log("Flujo conectado por Tailscale.");
             }).catch(e => {
                 fallosConsecutivos++;
@@ -97,11 +98,10 @@
                 statusText.style.color = "#ef4444";
                 log(`Fallo de red (${fallosConsecutivos}). Reintento en 5s...`);
 
-                // Si acumulamos 4 fallos seguidos (20 segundos sin señal), RECARGAMOS LA WEB ENTERA
                 if (fallosConsecutivos >= 4) {
                     log("¡Demasiados fallos! Reiniciando la página web completa...");
                     setTimeout(() => {
-                        location.reload(true); // Fuerza recarga limpia de la web y el socket
+                        location.reload(true);
                     }, 2000);
                     return;
                 }
@@ -147,13 +147,25 @@
             }, 12000);
         }
 
+        // TEMPORIZADOR PREVENTIVO DE 30 MINUTOS
+        function iniciarTemporizadorRefresco() {
+            if (refreshTimer) clearInterval(refreshTimer);
+            // 30 minutos = 30 * 60 * 1000 ms = 1,800,000 ms
+            refreshTimer = setInterval(() => {
+                log("Mantenimiento preventivo: Refrescando emisión (30m)...");
+                setTimeout(() => {
+                    location.reload(true);
+                }, 1000);
+            }, 1800000);
+        }
+
         window.onload = function() {
-            log("Nodo HTML con Auto-Reload iniciado.");
+            log("Nodo HTML con Refresh preventivo iniciado.");
             conectarStream();
             iniciarWatchdog();
+            iniciarTemporizadorRefresco();
         };
     </script>
 
 </body>
 </html>
-
