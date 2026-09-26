@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TRSNET - Nodo Reinosa</title>
+    <title>TRSNET - Nodo Reinosa Auto-Reload</title>
     <style>
         body {
             background-color: #0b0f19;
@@ -40,7 +40,7 @@
             font-size: 10px;
             color: #6b7280;
             text-align: left;
-            height: 70px;
+            height: 90px;
             overflow-y: hidden;
             background: #030712;
             padding: 8px;
@@ -52,14 +52,13 @@
 
     <div class="container">
         <h2>TRSNET REINOSA</h2>
-        <div class="sub">Nodo Receptor 0.5W - Auto-Recovery</div>
+        <div class="sub">Nodo Auto-Reload & Recovery</div>
         
         <div id="status" style="color: #fbbf24;">Iniciando sistema...</div>
         
-        <!-- Elemento de audio nativo -->
         <audio id="stream" controls autoplay></audio>
 
-        <div class="logs" id="logBox">Sistema listo. Esperando flujo...</div>
+        <div class="logs" id="logBox">Esperando inicio...</div>
     </div>
 
     <script>
@@ -67,9 +66,10 @@
         const statusText = document.getElementById('status');
         const logBox = document.getElementById('logBox');
 
-        // URL de tu Tailscale configurada con la IP correcta
         const streamUrl = 'http://100.99.98.47:8090'; 
         let reintentoTimer = null;
+        let watchdogTimer = null;
+        let fallosConsecutivos = 0; // Contador para forzar reinicio de web
 
         function log(msg) {
             const hora = new Date().toLocaleTimeString();
@@ -77,57 +77,83 @@
         }
 
         function conectarStream() {
-            // Evitar bucles de reconexión encimados
             if (reintentoTimer) clearTimeout(reintentoTimer);
 
             statusText.innerText = "Conectando al estudio...";
             statusText.style.color = "#fbbf24";
             
-            // Pausar y limpiar fuente anterior para forzar corte limpio
             audio.pause();
-            audio.src = "";
-            
-            // Asignar nueva URL con parámetro anti-caché limpio
             audio.src = streamUrl + "?nocache=" + Date.now();
             audio.load();
             
             audio.play().then(() => {
                 statusText.innerText = "EN DIRECTO (Reproduciendo)";
                 statusText.style.color = "#00ffcc";
-                log("Flujo conectado correctamente.");
+                fallosConsecutivos = 0; // Reseteamos contador si hay éxito
+                log("Flujo conectado por Tailscale.");
             }).catch(e => {
-                statusText.innerText = "Sin señal / Reintentando...";
+                fallosConsecutivos++;
+                statusText.innerText = "Sin señal (" + fallosConsecutivos + "/4)...";
                 statusText.style.color = "#ef4444";
-                log("Error de red. Reintento en 5s...");
+                log(`Fallo de red (${fallosConsecutivos}). Reintento en 5s...`);
+
+                // Si acumulamos 4 fallos seguidos (20 segundos sin señal), RECARGAMOS LA WEB ENTERA
+                if (fallosConsecutivos >= 4) {
+                    log("¡Demasiados fallos! Reiniciando la página web completa...");
+                    setTimeout(() => {
+                        location.reload(true); // Fuerza recarga limpia de la web y el socket
+                    }, 2000);
+                    return;
+                }
+
                 reintentoTimer = setTimeout(conectarStream, 5000);
             });
         }
 
-        // Si la red se cae de golpe y el reproductor emite error de carga
+        // Si la conexión cae de golpe
         audio.onerror = function() {
-            statusText.innerText = "Corte de red detectado";
+            fallosConsecutivos++;
+            statusText.innerText = "Corte de enlace detectado";
             statusText.style.color = "#ef4444";
-            log("Pérdida de enlace. Reconectando en 5s...");
+            log(`Error de socket. Fallo #${fallosConsecutivos}`);
+            
+            if (fallosConsecutivos >= 4) {
+                log("Reiniciando la web por corte de socket...");
+                setTimeout(() => location.reload(true), 2000);
+                return;
+            }
+
             if (reintentoTimer) clearTimeout(reintentoTimer);
             reintentoTimer = setTimeout(conectarStream, 5000);
         };
 
-        // Si el stream se congela, entra en búfer infinito o se pausa por la red
+        // Si se congela o entra en silencio
         audio.onpause = function() {
-            // Solo actúa si no ha sido una pausa manual del usuario o fin de pista
             if (!audio.ended && audio.currentTime > 0) {
-                log("Audio congelado o pausado por la red. Forzando rearme...");
+                log("Audio congelado. Forzando rearme...");
                 if (reintentoTimer) clearTimeout(reintentoTimer);
                 reintentoTimer = setTimeout(conectarStream, 3000);
             }
         };
 
-        // Arrancar al cargar la página
+        // WATCHDOG DE SEGURIDAD (Comprobación cada 12 segundos)
+        function iniciarWatchdog() {
+            if (watchdogTimer) clearInterval(watchdogTimer);
+            watchdogTimer = setInterval(() => {
+                if (audio.paused && !audio.ended) {
+                    log("Watchdog: Detectado bloqueo. Forzando reconexión...");
+                    conectarStream();
+                }
+            }, 12000);
+        }
+
         window.onload = function() {
-            log("Iniciando nodo web...");
+            log("Nodo HTML con Auto-Reload iniciado.");
             conectarStream();
+            iniciarWatchdog();
         };
     </script>
 
 </body>
 </html>
+
