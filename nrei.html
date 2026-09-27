@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TRSNET - Nodo Reinosa Auto-Reload</title>
+    <title>TRSNET - Nodo Reinosa WakeLock</title>
     <style>
         body {
             background-color: #0b0f19;
@@ -52,7 +52,7 @@
 
     <div class="container">
         <h2>TRSNET REINOSA</h2>
-        <div class="sub">Nodo Auto-Reload & Refresh 30m</div>
+        <div class="sub">Nodo WakeLock & 30m Refresh</div>
         
         <div id="status" style="color: #fbbf24;">Iniciando sistema...</div>
         
@@ -71,10 +71,31 @@
         let watchdogTimer = null;
         let refreshTimer = null;
         let fallosConsecutivos = 0; 
+        let wakeLock = null;
 
         function log(msg) {
             const hora = new Date().toLocaleTimeString();
             logBox.innerHTML = `[${hora}] ${msg}<br>` + logBox.innerHTML;
+        }
+
+        // PETICIÓN DE WAKE LOCK (Evita que el móvil apague la pantalla o duerma la CPU)
+        async function solicitarWakeLock() {
+            if ('wakeLock' in navigator) {
+                try {
+                    wakeLock = await navigator.wakeLock.request('screen');
+                    log("WakeLock activo: Pantalla bloqueada contra apagado.");
+                    
+                    // Si el usuario cambia de app y vuelve, se libera; lo reintentamos pedir
+                    wakeLock.addEventListener('release', () => {
+                        log("WakeLock liberado por el sistema. Reintentando...");
+                        setTimeout(solicitarWakeLock, 3000);
+                    });
+                } catch (err) {
+                    log("Error al activar WakeLock: " + err.name);
+                }
+            } else {
+                log("WakeLock no soportado en este navegador.");
+            }
         }
 
         function conectarStream() {
@@ -92,6 +113,9 @@
                 statusText.style.color = "#00ffcc";
                 fallosConsecutivos = 0; 
                 log("Flujo conectado por Tailscale.");
+                
+                // Asegurar el WakeLock al reproducir
+                solicitarWakeLock();
             }).catch(e => {
                 fallosConsecutivos++;
                 statusText.innerText = "Sin señal (" + fallosConsecutivos + "/4)...";
@@ -110,7 +134,6 @@
             });
         }
 
-        // Si la conexión cae de golpe
         audio.onerror = function() {
             fallosConsecutivos++;
             statusText.innerText = "Corte de enlace detectado";
@@ -127,7 +150,6 @@
             reintentoTimer = setTimeout(conectarStream, 5000);
         };
 
-        // Si se congela o entra en silencio
         audio.onpause = function() {
             if (!audio.ended && audio.currentTime > 0) {
                 log("Audio congelado. Forzando rearme...");
@@ -150,7 +172,6 @@
         // TEMPORIZADOR PREVENTIVO DE 30 MINUTOS
         function iniciarTemporizadorRefresco() {
             if (refreshTimer) clearInterval(refreshTimer);
-            // 30 minutos = 30 * 60 * 1000 ms = 1,800,000 ms
             refreshTimer = setInterval(() => {
                 log("Mantenimiento preventivo: Refrescando emisión (30m)...");
                 setTimeout(() => {
@@ -160,12 +181,21 @@
         }
 
         window.onload = function() {
-            log("Nodo HTML con Refresh preventivo iniciado.");
+            log("Nodo HTML con WakeLock iniciado.");
             conectarStream();
             iniciarWatchdog();
             iniciarTemporizadorRefresco();
+            solicitarWakeLock();
         };
+
+        // Si la pestaña recupera visibilidad, reactivamos el bloqueo de pantalla
+        document.addEventListener("visibilitychange", async () => {
+            if (wakeLock !== null && document.visibilityState === 'visible') {
+                await solicitarWakeLock();
+            }
+        });
     </script>
 
 </body>
 </html>
+
